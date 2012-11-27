@@ -18,6 +18,22 @@
 import math
 
 
+def sha3_224(data=None):
+  return Keccak(c=448, r=1152, n=224, data=data)
+
+
+def sha3_256(data=None):
+  return Keccak(c=512, r=1088, n=256, data=data)
+
+
+def sha3_384(data=None):
+  return Keccak(c=768, r=832, n=384, data=data)
+
+
+def sha3_512(data=None):
+  return Keccak(c=1024, r=576, n=512, data=data)
+
+
 class KeccakError(Exception):
   """Custom error Class used in the Keccak implementation"""
 
@@ -26,12 +42,6 @@ class KeccakError(Exception):
 
   def __str__(self):
     return repr(self.value)
-
-
-def _build_message_pair(data):
-  hex_data = data.encode('hex')
-  size = len(hex_data) * 4
-  return (size, hex_data)
 
 
 class Keccak:
@@ -47,7 +57,7 @@ class Keccak:
     self.b = r + c
     # b = 25*w
     self.w = self.b // 25
-     # 2^l = w
+     # 2**l = w
     self.l = int(math.log(self.w, 2))
 
     self.n_r = 12 + 2 * self.l
@@ -108,97 +118,6 @@ class Keccak:
        [28, 55,  25,  21,  56],
        [27, 20,  39,   8,  14]]
 
-  ## Generic utility functions
-  @staticmethod
-  def rot(x, shift_amount, length):
-    """Rotate x shift_amount bits to the left, considering the \
-    string of bits is length bits long"""
-
-    shift_amount = shift_amount % length
-    return ((x >> (length - shift_amount)) + (x << shift_amount)) % (1 << length)
-
-  ### Conversion functions String <-> Table (and vice-versa)
-
-  @staticmethod
-  def fromHexStringToLane(string):
-    """Convert a string of bytes written in hexadecimal to a lane value"""
-
-    #Check that the string has an even number of characters i.e. whole number of bytes
-    if len(string) % 2 != 0:
-      raise KeccakError.KeccakError("The provided string does not end with a full byte")
-
-    #Perform the conversion
-    temp = ''
-    nrBytes = len(string) // 2
-    for i in xrange(nrBytes):
-      offset = (nrBytes - i - 1) * 2
-      temp += string[offset:offset + 2]
-    return int(temp, 16)
-
-  @staticmethod
-  def fromLaneToHexString(lane, w):
-    """Convert a lane value to a string of bytes written in hexadecimal"""
-
-    laneHexBE = (("%%0%dX" % (w // 4)) % lane)
-    #Perform the conversion
-    temp = ''
-    nrBytes = len(laneHexBE) // 2
-    for i in xrange(nrBytes):
-      offset = (nrBytes - i - 1) * 2
-      temp += laneHexBE[offset:offset + 2]
-    return temp.upper()
-
-  @staticmethod
-  def convertStrToTable(string, w, b):
-    """Convert a string of hex-chars to its 5x5 matrix representation
-
-    string: string of bytes of hex-coded bytes (e.g. '9A2C...')"""
-
-    # Check that the input paramaters are expected
-    if w % 8 != 0:
-      raise KeccakError("w is not a multiple of 8")
-
-    # Each character in the string represents 4 bits.
-    # The string should have exactly 'b' bits.
-    if len(string) * 4 != b:
-      raise KeccakError.KeccakError("string can't be divided in 25 blocks of w bits\
-      i.e. string must have exactly b bits")
-
-    #Convert
-    output = [[0, 0, 0, 0, 0],
-              [0, 0, 0, 0, 0],
-              [0, 0, 0, 0, 0],
-              [0, 0, 0, 0, 0],
-              [0, 0, 0, 0, 0]]
-
-    bits_per_char = 2 * w // 8
-    for x in xrange(5):
-      for y in xrange(5):
-        # Each entry will have b/25=w bits.
-        offset = (5 * y + x) * bits_per_char
-        # Store the data into the associated word.
-        hexstring = string[offset:offset + bits_per_char]
-        output[x][y] = Keccak.fromHexStringToLane(hexstring)
-    return output
-
-  @staticmethod
-  def convertTableToStr(table, w):
-    """Convert a 5x5 matrix representation to its string representation"""
-
-    #Check input format
-    if w % 8 != 0:
-      raise KeccakError.KeccakError("w is not a multiple of 8")
-    if (len(table) != 5) or any(len(row) != 5 for row in table):
-      raise KeccakError.KeccakError("table must be 5x5")
-
-    #Convert
-    output = [''] * 25
-    for x in xrange(5):
-      for y in xrange(5):
-        output[5 * y + x] = Keccak.fromLaneToHexString(table[x][y], w)
-    output = ''.join(output).upper()
-    return output
-
   @staticmethod
   def Round(A, RCfixed, w):
     """Perform one round of computation as defined in the Keccak-f permutation
@@ -221,7 +140,7 @@ class Keccak:
       C[x] = A[x][0] ^ A[x][1] ^ A[x][2] ^ A[x][3] ^ A[x][4]
 
     for x in range(5):
-      D[x] = C[(x - 1) % 5] ^ Keccak.rot(C[(x + 1) % 5], 1, w)
+      D[x] = C[(x - 1) % 5] ^ _rot(C[(x + 1) % 5], 1, w)
 
     for x in range(5):
       for y in range(5):
@@ -230,7 +149,7 @@ class Keccak:
     #Rho and Pi steps
     for x in range(5):
       for y in range(5):
-        B[y][(2 * x + 3 * y) % 5] = Keccak.rot(A[x][y], Keccak.r[x][y], w)
+        B[y][(2 * x + 3 * y) % 5] = _rot(A[x][y], Keccak.r[x][y], w)
 
     #Chi step
     for x in range(5):
@@ -331,7 +250,7 @@ class Keccak:
       #Absorbing phase
       for i in xrange((len(P) * 8 // 2) // self.r):
         to_convert = P[i * (2 * self.r // 8):(i + 1) * (2 * self.r // 8)] + '00' * (self.c // 8)
-        P_i = Keccak.convertStrToTable(to_convert, self.w, self.b)
+        P_i = _convertStrToTable(to_convert, self.w, self.b)
 
         # First apply the XOR to the state + block
         for y in xrange(5):
@@ -364,7 +283,7 @@ class Keccak:
     Z = ''
     outputLength = self.n
     while outputLength > 0:
-      string = Keccak.convertTableToStr(self.S, self.w)
+      string = _convertTableToStr(self.S, self.w)
       # Read the first 'r' bits of the state
       Z = Z + string[:self.r * 2 // 8]
       outputLength -= self.r
@@ -391,19 +310,102 @@ class Keccak:
     # and any other stored data
     duplicate.buffered_data = self.buffered_data
     duplicate.last_digest = self.last_digest
+    return duplicate
 
 
-def sha3_224(data=None):
-  return Keccak(c=448, r=1152, n=224, data=data)
+## Generic utility functions
+
+def _build_message_pair(data):
+  hex_data = data.encode('hex')
+  size = len(hex_data) * 4
+  return (size, hex_data)
 
 
-def sha3_256(data=None):
-  return Keccak(c=512, r=1088, n=256, data=data)
+def _rot(x, shift_amount, length):
+  """Rotate x shift_amount bits to the left, considering the \
+  string of bits is length bits long"""
+
+  shift_amount = shift_amount % length
+  return ((x >> (length - shift_amount)) + (x << shift_amount)) % (1 << length)
+
+### Conversion functions String <-> Table (and vice-versa)
 
 
-def sha3_384(data=None):
-  return Keccak(c=768, r=832, n=384, data=data)
+def _fromHexStringToLane(string):
+  """Convert a string of bytes written in hexadecimal to a lane value"""
+
+  #Check that the string has an even number of characters i.e. whole number of bytes
+  if len(string) % 2 != 0:
+    raise KeccakError.KeccakError("The provided string does not end with a full byte")
+
+  #Perform the conversion
+  temp = ''
+  nrBytes = len(string) // 2
+  for i in xrange(nrBytes):
+    offset = (nrBytes - i - 1) * 2
+    temp += string[offset:offset + 2]
+  return int(temp, 16)
 
 
-def sha3_512(data=None):
-  return Keccak(c=1024, r=576, n=512, data=data)
+def _fromLaneToHexString(lane, w):
+  """Convert a lane value to a string of bytes written in hexadecimal"""
+
+  laneHexBE = (("%%0%dX" % (w // 4)) % lane)
+  #Perform the conversion
+  temp = ''
+  nrBytes = len(laneHexBE) // 2
+  for i in xrange(nrBytes):
+    offset = (nrBytes - i - 1) * 2
+    temp += laneHexBE[offset:offset + 2]
+  return temp.upper()
+
+
+def _convertStrToTable(string, w, b):
+  """Convert a string of hex-chars to its 5x5 matrix representation
+
+  string: string of bytes of hex-coded bytes (e.g. '9A2C...')"""
+
+  # Check that the input paramaters are expected
+  if w % 8 != 0:
+    raise KeccakError("w is not a multiple of 8")
+
+  # Each character in the string represents 4 bits.
+  # The string should have exactly 'b' bits.
+  if len(string) * 4 != b:
+    raise KeccakError.KeccakError("string can't be divided in 25 blocks of w bits\
+    i.e. string must have exactly b bits")
+
+  #Convert
+  output = [[0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0]]
+
+  bits_per_char = 2 * w // 8
+  for x in xrange(5):
+    for y in xrange(5):
+      # Each entry will have b/25=w bits.
+      offset = (5 * y + x) * bits_per_char
+      # Store the data into the associated word.
+      hexstring = string[offset:offset + bits_per_char]
+      output[x][y] = _fromHexStringToLane(hexstring)
+  return output
+
+
+def _convertTableToStr(table, w):
+  """Convert a 5x5 matrix representation to its string representation"""
+
+  #Check input format
+  if w % 8 != 0:
+    raise KeccakError.KeccakError("w is not a multiple of 8")
+  if (len(table) != 5) or any(len(row) != 5 for row in table):
+    raise KeccakError.KeccakError("table must be 5x5")
+
+  #Convert
+  output = [''] * 25
+  for x in xrange(5):
+    for y in xrange(5):
+      output[5 * y + x] = _fromLaneToHexString(table[x][y], w)
+  output = ''.join(output).upper()
+  return output
