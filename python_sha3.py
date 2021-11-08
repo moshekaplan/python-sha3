@@ -13,9 +13,21 @@
 # To the extent possible under law, the implementer has waived all copyright
 # and related or neighboring rights to the source code in this file.
 # http://creativecommons.org/publicdomain/zero/1.0/
-
+#
+# Modified by Henry Weickert to be Python 3 compatible.
 
 import math
+import sys
+
+
+
+if sys.version_info[0] < 3:
+    hexlify = lambda s: s.encode('hex')
+    unhexlify = lambda s: s.decode('hex')
+else:
+    import binascii
+    hexlify = binascii.hexlify
+    unhexlify = binascii.unhexlify
 
 
 def sha3_224(data=None):
@@ -74,7 +86,7 @@ class Keccak:
              [0, 0, 0, 0, 0]]
 
     # A string of hexchars, where each char represents 4 bits.
-    self.buffered_data = ""
+    self.buffered_data = b""
 
     # Store the calculated digest.
     # We'll only apply padding and recalculate the hash if it's modified.
@@ -170,7 +182,7 @@ class Keccak:
     w: word size
     """
 
-    for i in xrange(n_r):
+    for i in range(n_r):
       A = Keccak.Round(A, Keccak.RC[i] % (1 << w), w)
 
     return A
@@ -196,7 +208,7 @@ class Keccak:
     if len(my_string) % 2 != 0:
       #Pad with one '0' to reach correct length (don't know test
       #vectors coding)
-      my_string += '0'
+      my_string += b'0'
     if my_string_length > (len(my_string) // 2 * 8):
       raise KeccakError.KeccakError("the string is too short to contain the number of bits announced")
 
@@ -210,7 +222,7 @@ class Keccak:
         my_byte = int(my_string[nr_bytes_filled * 2:nr_bytes_filled * 2 + 2], 16)
       my_byte = (my_byte >> (8 - nbr_bits_filled))
       my_byte = my_byte + 2 ** (nbr_bits_filled) + 2 ** 7
-      my_byte = "%02X" % my_byte
+      my_byte = b"%02X" % my_byte
       my_string = my_string[0:nr_bytes_filled * 2] + my_byte
     else:
       if (nbr_bits_filled == 0):
@@ -219,11 +231,11 @@ class Keccak:
         my_byte = int(my_string[nr_bytes_filled * 2:nr_bytes_filled * 2 + 2], 16)
       my_byte = (my_byte >> (8 - nbr_bits_filled))
       my_byte = my_byte + 2 ** (nbr_bits_filled)
-      my_byte = "%02X" % my_byte
+      my_byte = b"%02X" % my_byte
       my_string = my_string[0:nr_bytes_filled * 2] + my_byte
       while((8 * len(my_string) // 2) % n < (n - 8)):
-        my_string = my_string + '00'
-      my_string = my_string + '80'
+        my_string = my_string + b'00'
+      my_string = my_string + b'80'
 
     return my_string
 
@@ -232,7 +244,7 @@ class Keccak:
 
     self.last_digest = None
     # Convert the data into a workable format, and add it to the buffer
-    self.buffered_data += arg.encode('hex')
+    self.buffered_data += hexlify(arg)
 
     # Absorb any blocks we can:
     if len(self.buffered_data) * 4 >= self.r:
@@ -241,20 +253,20 @@ class Keccak:
       # An exact fit!
       if extra_bits == 0:
         P = self.buffered_data
-        self.buffered_data = ""
+        self.buffered_data = b""
       else:
         # Slice it up into the first r*a bits, for some constant a>=1, and the remaining total-r*a bits.
         P = self.buffered_data[:-extra_bits // 4]
         self.buffered_data = self.buffered_data[-extra_bits // 4:]
 
       #Absorbing phase
-      for i in xrange((len(P) * 8 // 2) // self.r):
-        to_convert = P[i * (2 * self.r // 8):(i + 1) * (2 * self.r // 8)] + '00' * (self.c // 8)
+      for i in range((len(P) * 8 // 2) // self.r):
+        to_convert = P[i * (2 * self.r // 8):(i + 1) * (2 * self.r // 8)] + b'00' * (self.c // 8)
         P_i = _convertStrToTable(to_convert, self.w, self.b)
 
         # First apply the XOR to the state + block
-        for y in xrange(5):
-          for x in xrange(5):
+        for y in range(5):
+          for x in range(5):
             self.S[x][y] = self.S[x][y] ^ P_i[x][y]
         # Then apply the block permutation, Keccak-F
         self.S = Keccak.KeccakF(self.S, self.n_r, self.w)
@@ -270,17 +282,17 @@ class Keccak:
 
     # UGLY WARNING
     # Handle bytestring/hexstring conversions
-    M = _build_message_pair(self.buffered_data.decode('hex'))
+    M = _build_message_pair(unhexlify(self.buffered_data))
 
     # First finish the padding and force the final update:
     self.buffered_data = Keccak.pad10star1(M, self.r)
-    self.update('')
+    self.update(b'')
     # UGLY WARNING over
 
     assert len(self.buffered_data) == 0, "Why is there data left in the buffer? %s with length %d" % (self.buffered_data, len(self.buffered_data) * 4)
 
     # Squeezing time!
-    Z = ''
+    Z = b''
     outputLength = self.n
     while outputLength > 0:
       string = _convertTableToStr(self.S, self.w)
@@ -290,7 +302,7 @@ class Keccak:
       if outputLength > 0:
         S = KeccakF(S, verbose)
 
-    self.last_digest = Z[:2 * self.n // 8].decode('hex')
+    self.last_digest = unhexlify(Z[:2 * self.n // 8])
     return self.last_digest
 
   def hexdigest(self):
@@ -298,14 +310,14 @@ class Keccak:
 
     This may be used to exchange the value safely in email or other
     non-binary environments."""
-    return self.digest().encode('hex')
+    return hexlify(self.digest())
 
   def copy(self):
     # First initialize whatever can be done normally
     duplicate = Keccak(c=self.c, r=self.r, n=self.n)
     # Then copy over the state.
-    for i in xrange(5):
-      for j in xrange(5):
+    for i in range(5):
+      for j in range(5):
         duplicate.S[i][j] = self.S[i][j]
     # and any other stored data
     duplicate.buffered_data = self.buffered_data
@@ -316,7 +328,7 @@ class Keccak:
 ## Generic utility functions
 
 def _build_message_pair(data):
-  hex_data = data.encode('hex')
+  hex_data = hexlify(data)
   size = len(hex_data) * 4
   return (size, hex_data)
 
@@ -339,9 +351,9 @@ def _fromHexStringToLane(string):
     raise KeccakError.KeccakError("The provided string does not end with a full byte")
 
   #Perform the conversion
-  temp = ''
+  temp = b''
   nrBytes = len(string) // 2
-  for i in xrange(nrBytes):
+  for i in range(nrBytes):
     offset = (nrBytes - i - 1) * 2
     temp += string[offset:offset + 2]
   return int(temp, 16)
@@ -350,11 +362,11 @@ def _fromHexStringToLane(string):
 def _fromLaneToHexString(lane, w):
   """Convert a lane value to a string of bytes written in hexadecimal"""
 
-  laneHexBE = (("%%0%dX" % (w // 4)) % lane)
+  laneHexBE = ((b"%%0%dX" % (w // 4)) % lane)
   #Perform the conversion
-  temp = ''
+  temp = b''
   nrBytes = len(laneHexBE) // 2
-  for i in xrange(nrBytes):
+  for i in range(nrBytes):
     offset = (nrBytes - i - 1) * 2
     temp += laneHexBE[offset:offset + 2]
   return temp.upper()
@@ -383,8 +395,8 @@ def _convertStrToTable(string, w, b):
             [0, 0, 0, 0, 0]]
 
   bits_per_char = 2 * w // 8
-  for x in xrange(5):
-    for y in xrange(5):
+  for x in range(5):
+    for y in range(5):
       # Each entry will have b/25=w bits.
       offset = (5 * y + x) * bits_per_char
       # Store the data into the associated word.
@@ -403,9 +415,9 @@ def _convertTableToStr(table, w):
     raise KeccakError.KeccakError("table must be 5x5")
 
   #Convert
-  output = [''] * 25
-  for x in xrange(5):
-    for y in xrange(5):
+  output = [b''] * 25
+  for x in range(5):
+    for y in range(5):
       output[5 * y + x] = _fromLaneToHexString(table[x][y], w)
-  output = ''.join(output).upper()
+  output = b''.join(output).upper()
   return output
